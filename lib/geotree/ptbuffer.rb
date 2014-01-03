@@ -1,6 +1,3 @@
-require_relative 'tools'
-req 'geotree  externalsort'
-require 'tempfile'
 
 module GeoTreeModule
   # Support for buffering new points to a file, then shuffling the points
@@ -84,9 +81,13 @@ module GeoTreeModule
           @buff_file.binmode
 
           r = ChunkReader.new(@buff_file, 0, DATAPOINT_BYTES * @buffered_count, DATAPOINT_BYTES)
-          while !r.done
-            by,off = r.peek
-            dp = GeoTree.read_data_point_from(by,off / INT_BYTES)
+          while true
+            element = r.peek
+            break if !element
+            by = ByteArray.new(element)
+
+
+            dp = GeoTree.read_data_point_from(by,0)
             r.read
             !db||  pr("adding data point: #{dp}\n")
             @tree.add_buffered_point(dp)
@@ -109,10 +110,10 @@ module GeoTreeModule
           @buff_file.binmode
         end
 
-        by = zero_bytes(DATAPOINT_BYTES)
+        by = ByteArray.new(DATAPOINT_BYTES)
         GeoTree.write_data_point(data_point, by, 0)
-        nw = @buff_file.write(by)
-        raise IOError if nw != by.size
+        nw = @buff_file.write(by.string)
+        raise IOError,"wrote #{nw} bytes instead of #{by.size} (by=#{by})" if nw != by.size
         @buffered_count += 1
       end
     end

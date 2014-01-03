@@ -1,5 +1,3 @@
-require_relative  'loc'
-
 module GeoTreeModule
   class Bounds
     attr_accessor :x,:y,:w,:h

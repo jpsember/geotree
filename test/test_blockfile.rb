@@ -1,77 +1,27 @@
-require 'test/unit'
+#!/usr/bin/env ruby
+require 'geotree'
+require 'js_base/test'
 
-require_relative '../lib/geotree/tools.rb'
-req('blockfile diskblockfile')
+class TestBlockFile < Test::Unit::TestCase
 
-
-#SINGLETEST = "test_200_recover_with_incorrect_password"
-if defined? SINGLETEST
-  if main?(__FILE__)
-    ARGV.concat("-n  #{SINGLETEST}".split)
-  end
-end
-
-class TestBlockFile < Test::Unit::TestCase #< MyTestSuite
-
-  
- # include BlockFile
- # include LEnc
-  
-  # Make a directory, if it doesn't already exist
-  def mkdir(name)
-    if !File.directory?(name)  
-      Dir::mkdir(name)
-    end
+  def setup
+    enter_test_directory
+    @bf = nil
   end
 
-  def suite_setup
-    #    pr("\n\n>>>> TestBlockFile   setup\n\n")
-    
-    # Make current directory = the one containing this script
-    main?(__FILE__)
-    
-    @@testDir = "__temp_dirs__"
-    mkdir(@@testDir)
-      
-     
-    clean()
+  def teardown
+    leave_test_directory
   end
 
-    
-  def clean
-  end
-  
   def build_bf
     if !@bf
       @bf = BlockFile.new(64)
     end
   end
-  
-  def suite_teardown
-#    pr("\n\n<<<< TestBlockFile   teardown\n\n")
-  end
-  
-  def method_setup
-#    pr("\n\n\n")
-  end
-  
-  def method_teardown
-    @bf = nil
-  end
-      
- 
-     
-  def ex(args)  
-    if args.is_a? String
-      args = args.split
-    end
-    args.concat(["-w", @@sourceDir, "-q"])
-    LEncApp.new().run(args)
-  end
-  
+
 
   # --------------- tests --------------------------
-  
+
   def test_100_create_block_file
     build_bf
     assert(@bf && !@bf.open?)
@@ -81,7 +31,7 @@ class TestBlockFile < Test::Unit::TestCase #< MyTestSuite
     @bf.open
     assert(@bf &&   @bf.open?)
   end
- 
+
   def test_120_user_values
     build_bf
     @bf.open
@@ -98,56 +48,53 @@ class TestBlockFile < Test::Unit::TestCase #< MyTestSuite
       @bf.write_user(2,42)
     end
   end
-  
+
   def test_140_private_constant_access
     assert_raise(NameError) do
       BlockFile::BLOCKTYPE_RECYCLE
     end
   end
 
-#  def test_140_phony
-#     assert_raise(IllegalStateException) do
-#       puts "nothing"
-#     end
-#   end
-  
-end
 
-if false && __FILE__ == $0
+  def _test_string_manip
+    chunk_size = 512
+    nchunks = 2000
+    data_size = chunk_size * nchunks
 
-  pth = '__foo__.bin'
-  remove_file_or_dir(pth)
-  
-  bf = DiskBlockFile.new(64,pth)
-  bf.open
-
-   bnames = []
-  (20..40).each do |i|
-    by = bf.alloc_buffer
-        bf.block_size.times do |x|
-          by[x] = i.chr
-        end
-#        bf.write(n,by)
-    n = bf.alloc(by)
-    bnames << n
-    pr("i=#{i} n=#{n} block_size=%d\n",bf.block_size)
-          pr("alloc'd block #{n}:\n%s\n",n,bf.dump(n))
-  end
-  
-  5.times do
-    q = bnames.pop
-      
-    bf.free q  
-    pr("\n\n\nafter freeing %d: %s\n",q,d(bf))
-      
-    if (q % 3 == 2)
-      q2 = bf.alloc
-      pr("  alloc'd another page #{q2}\n")
+    s1 = "A" * data_size
+    s2 = "B" * data_size
+    nchunks.times do |k|
+      puts("k=#{k}")
+      i = k*chunk_size
+      sl = s1[i...i+chunk_size]
+      s2[i...i+chunk_size] = sl
     end
-    
   end
-    
-  puts bf
-  bf.close
+
+  def _test_byte_stuff
+    s = "A"*1024
+    a = [65] * 1024
+
+    path = '_binary1_.txt'
+    f = File.open(path,"w+b")
+    count = f.write(s)
+    f.close
+    puts "wrote string, count=#{count}"
+    r1 = FileUtils.read_text_file(path)
+    puts("read:#{r1}")
+
+path = '_binary2_.txt'
+
+    f = File.open(path,"w+b")
+
+    s2 = a.pack('C*')
+    count = f.write(s2)
+    f.close
+    puts "wrote bytes, count=#{count}"
+    r2 = FileUtils.read_text_file(path)
+    puts("read:#{r2}")
+
+  end
+
 end
 

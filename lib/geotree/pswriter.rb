@@ -1,5 +1,3 @@
-require_relative 'tools'
-
 module PS_Private
   LT_SOLID_ = 1900
   LT_DASHED_ = 1901
@@ -16,7 +14,7 @@ module PS_Private
   S_START_ = 0
   S_OPEN_ = 1
   S_CLOSED_ = 2
-  
+
   class SOper
     attr_reader :type
     def self.null
@@ -36,7 +34,6 @@ module PS_Private
       @args.size
     end
     @@null_oper = SOper.new(-1)
-
   end
 end
 
@@ -48,6 +45,7 @@ class PSWriter
 
   # @param path path of file to write (e.g. xxx.ps)
   def initialize(path)
+    @sp_req = false
     @path = path
     @line_width = -1
     @rgb = [-1,0,0]
@@ -91,20 +89,20 @@ class PSWriter
     @buffer_stack << @s
     @s = ''
   end
-  
+
   def stop_buffer
     raise IllegalStateException if @buffer_stack.empty?
     ret = @s
     @s = @buffer_stack.pop
     ret
   end
-  
-    
+
+
   # Close document and write to disk
   def close
     if @state < S_CLOSED_
       if @stack.size != 0
-        warn("state stack nonempty for #{@path}")
+        warning("state stack nonempty for #{@path}")
       end
 
       flush_page
@@ -117,7 +115,7 @@ class PSWriter
       s << @s
       set_state(S_CLOSED_)
 
-      write_text_file(@path, s)
+      FileUtils.write_text_file(@path, s)
     end
   end
 
@@ -367,7 +365,6 @@ class PSWriter
 
   def pop(count = 1)
     count.times do
-      n = @stack.size   - 1
       op = @stack.pop
       case op.type
       when RGB_
@@ -390,13 +387,12 @@ class PSWriter
   def add_element(key,val)
     de(key,'{'+val+'}')
   end
-  
+
   def draw_element(key)
-    val = @dict[key]
     raise ArgumentError if !@dict.member?(key)
     a(key)
   end
-  
+
   private
 
   def cr
@@ -466,7 +462,7 @@ class PSWriter
     set_gray(0);
 
     if false
-      warn("drawing doc rect");
+      warning("drawing doc rect");
       draw_rect(0, 0, @document_size[0], @document_size[1], 0)
     end
     set_font_size(24);
@@ -477,7 +473,7 @@ class PSWriter
   end
 
   def get_doc_header
-    h = "%!PS\n"
+    "%!PS\n"
   end
 
   def get_doc_dictionary

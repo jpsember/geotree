@@ -1,6 +1,3 @@
-require_relative 'tools'
-req 'geotree'
-
 module GeoTreeModule
   #
   # See the README file for a description of this class.
@@ -8,7 +5,7 @@ module GeoTreeModule
   class MultiTree
 
     attr_reader :num_trees
-    
+
     # Construct MultiTree
     # @param path directory to store trees within
     # @param num_trees the number of trees to maintain (equivalently, the number of
@@ -40,10 +37,7 @@ module GeoTreeModule
     end
 
     def buffering=(val)
-      db = false
-
       raise IllegalStateException if !open?
-
       @buffer.active = val
     end
 
@@ -110,7 +104,7 @@ module GeoTreeModule
     end
 
     def add_buffered_point(data_point)
-      
+
       # Determine which is the lowest detail level at which
       # this point is to be found
 

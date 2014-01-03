@@ -1,9 +1,7 @@
-require_relative  'bounds'
-
 module GeoTreeModule
 
   MAX_POINT_WEIGHT = 16 # 1 + the maximum datapoint weight; must be power of 2
-  
+
   # Represents a point to be stored in a GeoTree.
   #
   # A point has these fields.
@@ -15,10 +13,10 @@ module GeoTreeModule
   #       the MultiTree class assumes that the lower 4 bits hold the point's
   #       detail level (a lower value means the point is less likely to show
   #       up at lower detail levels).
-  # 
+  #
   class DataPoint
     attr_accessor :loc, :name, :weight
-    
+
     def initialize(name,weight,loc)
       @name = name
       @loc = loc

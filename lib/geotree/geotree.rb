@@ -1,16 +1,12 @@
-require_relative 'node'
-
-req 'diskblockfile ptbuffer'
 
 module GeoTreeModule
-  # 
+  #
   # See the README file for a discussion of this class.
   #
   class GeoTree
 
     ROOT_NODE_NAME_ = BlockFile::FIRST_BLOCK_ID
 
-    privatize(self)
     def buffering=(val)
       raise IllegalStateException if !open?
       @buffer.active = val
@@ -37,7 +33,7 @@ module GeoTreeModule
         root = NodeL.new(ROOT_NODE_NAME_,false, @@start_bounds)
         # we need to add this node to the cache since it's just been built
         cache_node(root)
-        root_name = @block_file.alloc(encode_block(root))
+        @block_file.alloc(encode_block(root))
         write_node(root)
       end
     end
@@ -71,11 +67,13 @@ module GeoTreeModule
       end
     end
 
+
     private
 
-    # cache start and end nodes
-    attr_accessor :c_start, :c_end
-    attr_accessor :cache_dict, :mod_nodes, :block_file
+
+    # # cache start and end nodes
+    # attr_accessor :c_start, :c_end
+    # attr_accessor :cache_dict, :mod_nodes, :block_file
 
     @@start_bounds = Bounds.new(LOC_MIN,LOC_MIN,LOC_MAX - LOC_MIN,LOC_MAX - LOC_MIN)
     public
@@ -114,7 +112,7 @@ module GeoTreeModule
       raise IllegalStateException if @buffer.active
 
       removed = nil
-      block do
+      while true do
 
         # construct path of interior nodes leading to the leaf node set that contains the point
         # (if one exists)
@@ -200,6 +198,7 @@ module GeoTreeModule
             collapse_internal_node(inode)
           end
         end
+        break
       end
       done_operation
       removed
@@ -236,7 +235,6 @@ module GeoTreeModule
       raise IllegalStateException if !open?
 
       st = TreeStats.new
-      i = ROOT_NODE_NAME_
       aux_stats(ROOT_NODE_NAME_,@@start_bounds,false,false,0,st)
 
       st.summary
@@ -279,17 +277,17 @@ module GeoTreeModule
     end
 
     def self.read_data_point_from(b, offset)
-      name = BlockFile.read_int(b, offset)
-      weight = BlockFile.read_int(b, offset+1)
-      locn = Loc.new(BlockFile.read_int(b,offset+2),BlockFile.read_int(b,offset+3))
+      name = b.read_int(offset)
+      weight = b.read_int(offset+1)
+      locn = Loc.new(b.read_int(offset+2),b.read_int(offset+3))
       DataPoint.new(name,weight,locn)
     end
 
     def self.write_data_point(dp, b, offset)
-      BlockFile.write_int(b,offset, dp.name)
-      BlockFile.write_int(b,offset+1, dp.weight)
-      BlockFile.write_int(b,offset+2, dp.loc.x)
-      BlockFile.write_int(b,offset+3, dp.loc.y)
+      b.write_int(offset, dp.name)
+      b.write_int(offset+1, dp.weight)
+      b.write_int(offset+2, dp.loc.x)
+      b.write_int(offset+3, dp.loc.y)
     end
 
     private
@@ -320,7 +318,7 @@ module GeoTreeModule
     # Replace an internal node with a leaf node, one containing all the
     # datapoints in the internal node's subtree.
     def collapse_internal_node(n)
-      
+
       dp_set = []
       node_set = []
       gather_datapoints(n,dp_set,node_set)
@@ -424,7 +422,7 @@ module GeoTreeModule
         unsorted_pts = b
       end
 
-      pts = unsorted_pts.sort{|a,b| a.loc.x <=> b.loc.x}
+      pts = unsorted_pts.sort{|s1,s2| s1.loc.x <=> s2.loc.x}
 
       # Add location of left boundary
       a << bounds.x
@@ -530,20 +528,20 @@ module GeoTreeModule
       flags = 0
       flags |= 1 if n.leaf
 
-      BlockFile.write_int(b,HDR_FLAGS,flags)
+      b.write_int(HDR_FLAGS,flags)
 
       if !n.leaf
-        BlockFile.write_int(b, IFLD_POPULATION,n.population)
+        b.write_int(IFLD_POPULATION,n.population)
         off = IFLD_PARTITIONS
         NODEI_CHILDREN.times do |i|
           p = n.slot(i)
-          BlockFile.write_int(b, off, p.start_position)
-          BlockFile.write_int(b,off+1,p.child_name)
+          b.write_int(off, p.start_position)
+          b.write_int(off+1,p.child_name)
           off += 2
         end
       else
-        BlockFile.write_int(b,LFLD_OVERFLOW,n.overflow)
-        BlockFile.write_int(b,LFLD_USED,n.used)
+        b.write_int(LFLD_OVERFLOW,n.overflow)
+        b.write_int(LFLD_USED,n.used)
         off = LFLD_DATAPOINTS
         n.used.times do |i|
           GeoTree.write_data_point(n.data_point(i), b, off)
@@ -556,25 +554,25 @@ module GeoTreeModule
     # Decode a node from a block of bytes
     def decode_block(b, node_name, vertical, bounds)
 
-      flags = BlockFile.read_int(b, HDR_FLAGS)
+      flags = b.read_int(HDR_FLAGS)
       type = (flags & 1)
       n = nil
 
       if type == 0
         n = NodeI.new(node_name, vertical, bounds)
-        n.population = BlockFile.read_int(b, IFLD_POPULATION)
+        n.population = b.read_int(IFLD_POPULATION)
         off = IFLD_PARTITIONS
         NODEI_CHILDREN.times do |i|
           off = IFLD_PARTITIONS + i*PARTITION_INTS
-          p = Partition.new(BlockFile.read_int(b, off), BlockFile.read_int(b,off+1))
+          p = Partition.new(b.read_int(off), b.read_int(off+1))
           n.set_slot(i,p)
           off += PARTITION_INTS
         end
       else
         n  = NodeL.new(node_name,vertical,bounds)
 
-        n.overflow = BlockFile.read_int(b,LFLD_OVERFLOW)
-        n_used = BlockFile.read_int(b,LFLD_USED)
+        n.overflow = b.read_int(LFLD_OVERFLOW)
+        n_used = b.read_int(LFLD_USED)
 
         off = LFLD_DATAPOINTS
         n_used.times do |i|

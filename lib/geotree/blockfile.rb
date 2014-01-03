@@ -1,5 +1,3 @@
-require_relative 'tools'
-
 # Block file.
 #
 # For storing data in a collection of 'blocks', fixed-length arrays of bytes,
@@ -18,43 +16,23 @@ class BlockFile
   FIRST_BLOCK_ID = 2
   USER_HEADER_INTS = 4
 
-  #---- All constants ending with '_' will be made private
-
   VERSION_ = 1965
-
-  # Header block fields; each is an integer
-  INT_BYTES_ = 4
-  HDR_VERSION_ = 0
-  HDR_BLOCKSIZE_ = 1
-  HDR_MAXINDEX_ = 2
-  HDR_RECYCLEINDEX_ = 3
-  HDR_USERSTART_ = 4
-  HDR_SIZE_BYTES_ = (HDR_USERSTART_ + USER_HEADER_INTS) * INT_BYTES_
-
-  # Fields of a recycle directory block
-  RC_PREV_DIR_NAME_ = 0
-  RC_ENTRIES_USED_ = 1
-  RC_ENTRIES_START_ = 2
-
-  privatize(self)
-
-  #---------------------------------------------
 
   # Size of blocks, in bytes
   attr_reader  :block_size
+
   # Constructor.  Constructs a file, initially closed.
   # @param block_size size of blocks, in bytes
   def initialize(block_size)
     block_size = [block_size, HDR_SIZE_BYTES_].max
 
+    @block_size = block_size
     @header_data = nil
     @recycle_data = nil
     @header_modified = false
 
     # for in-memory version only:
     @mem_file = nil
-
-    @block_size = block_size
   end
 
   # Determine if file is open
@@ -71,9 +49,9 @@ class BlockFile
     existed = open_storage
     if !existed
       @header_data = alloc_buffer
-      BlockFile.write_int(@header_data, HDR_VERSION_, VERSION_)
-      BlockFile.write_int(@header_data, HDR_BLOCKSIZE_, block_size)
-      BlockFile.write_int(@header_data, HDR_RECYCLEINDEX_, 1)
+      @header_data.write_int(HDR_VERSION_, VERSION_)
+      @header_data.write_int(HDR_BLOCKSIZE_, block_size)
+      @header_data.write_int(HDR_RECYCLEINDEX_, 1)
       append_or_replace(0, @header_data)
 
       @recycle_data = alloc_buffer
@@ -82,12 +60,8 @@ class BlockFile
       aux_flush
     else
       @header_data = read(0)
-      if BlockFile.read_int(@header_data,HDR_VERSION_) != VERSION_
-        raise ArgumentError,"bad version"
-      end
-      if BlockFile.read_int(@header_data,HDR_BLOCKSIZE_) != block_size
-        raise ArgumentError,"unexpected block size"
-      end
+      raise ArgumentError,"bad version" if @header_data.read_int(HDR_VERSION_) != VERSION_
+      raise ArgumentError,"unexpected block size" if @header_data.read_int(HDR_BLOCKSIZE_) != block_size
       @recycle_data = read(rdir_head_name)
     end
     existed
@@ -155,7 +129,7 @@ class BlockFile
       write_hdr(HDR_RECYCLEINDEX_, block_name)
 
       read(block_name, @recycle_data)
-      BlockFile.clear_block(@recycle_data)
+      @recycle_data.clear
 
       set_rdir_next_name(old_dir)
       append_or_replace(block_name, @recycle_data)
@@ -177,7 +151,7 @@ class BlockFile
   def read_user(int_index)
     ensure_open
     raise ArgumentError if !(int_index >= 0 && int_index < USER_HEADER_INTS)
-    BlockFile.read_int(@header_data, HDR_USERSTART_ + int_index)
+    @header_data.read_int(HDR_USERSTART_ + int_index)
   end
 
   # Write a user value
@@ -186,7 +160,7 @@ class BlockFile
   def write_user(int_index, value)
     ensure_open
     raise ArgumentError if !(int_index >= 0 && int_index < USER_HEADER_INTS)
-    BlockFile.write_int(@header_data, HDR_USERSTART_ + int_index, value)
+    @header_data.write_int(HDR_USERSTART_ + int_index, value)
     @header_modified = true
   end
 
@@ -211,10 +185,10 @@ class BlockFile
         usage[ri] = 'R'
         rd = read(ri)
 
-        next_ri = BlockFile.read_int(rd, RC_PREV_DIR_NAME_)
-        used = BlockFile.read_int(rd, RC_ENTRIES_USED_)
+        next_ri = rd.read_int(RC_PREV_DIR_NAME_)
+        used = rd.read_int(RC_ENTRIES_USED_)
         used.times do |i|
-          rblock = BlockFile.read_int(rd,RC_ENTRIES_START_+i)
+          rblock = read_int(RC_ENTRIES_START_+i)
           usage[rblock] = 'r'
         end
         ri = next_ri
@@ -240,45 +214,9 @@ class BlockFile
     s
   end
 
-  def dump(block_name)
-    b = read(block_name)
-    hex_dump(b,"Block #{block_name}")
-  end
-
   # Create an array of bytes, all zeros, of length equal to this block file's block length
   def alloc_buffer
-    zero_bytes(@block_size)
-  end
-
-  # Read an integer from a block of bytes
-  def BlockFile.read_int(block, int_offset)
-    #  assert!(block)
-    j = int_offset*INT_BYTES_
-
-    # We must treat the most significant byte as a signed byte
-    high_byte = block[j].ord
-    if high_byte > 127
-      high_byte = high_byte - 256
-    end
-    (high_byte << 24) | (block[j+1].ord << 16) | (block[j+2].ord << 8) | block[j+3].ord
-  end
-
-  # Write an integer into a block of bytes
-  def BlockFile.write_int(block, int_offset, value)
-    j = int_offset * INT_BYTES_
-    block[j] = ((value >> 24) & 0xff).chr
-    block[j+1] = ((value >> 16) & 0xff).chr
-    block[j+2] = ((value >> 8) & 0xff).chr
-    block[j+3] = (value & 0xff).chr
-  end
-
-  # Clear block to zeros
-  def self.clear_block(block)
-    block[0..-1] = zero_bytes(block.size)
-  end
-
-  def BlockFile.copy_block(dest, src)
-    dest[0..-1] = src
+    ByteArray.new(@block_size)
   end
 
   # -------------------------------------------------------
@@ -299,7 +237,7 @@ class BlockFile
     end
 
     src = @mem_file[block_name]
-    BlockFile.copy_block(dest_buffer, src)
+    ByteArray.copy(src,0,@block_size,dest_buffer,0)
     dest_buffer
   end
 
@@ -312,7 +250,8 @@ class BlockFile
     if  block_name == @mem_file.size
       @mem_file << alloc_buffer
     end
-    BlockFile.copy_block(@mem_file[block_name], src_buffer)
+    dest = @mem_file[block_name]
+    ByteArray.copy(src_buffer,0,@block_size,dest,0)
   end
 
   # Open underlying storage; create it if necessary
@@ -337,10 +276,12 @@ class BlockFile
 
   # Get 1 + name of highest block ever created
   def name_max
-    BlockFile.read_int(@header_data, HDR_MAXINDEX_)
+    @header_data.read_int(HDR_MAXINDEX_)
   end
 
+
   private
+
 
   def aux_flush
     if @header_modified
@@ -366,36 +307,36 @@ class BlockFile
   end
 
   def get_rdir_slots_used
-    BlockFile.read_int(@recycle_data, RC_ENTRIES_USED_)
+    @recycle_data.read_int(RC_ENTRIES_USED_)
   end
 
   def set_rdir_slots_used(n)
-    BlockFile.write_int(@recycle_data,RC_ENTRIES_USED_,n)
+    @recycle_data.write_int(RC_ENTRIES_USED_,n)
   end
 
   # Get name of next recycle directory block
   # @return name of next, or 0 if there are no more
   def get_rdir_next_name
-    BlockFile.read_int(@recycle_data,RC_PREV_DIR_NAME_)
+    @recycle_data.read_int(RC_PREV_DIR_NAME_)
   end
 
   def get_rdir_slot(offset)
-    BlockFile.read_int(@recycle_data,(RC_ENTRIES_START_+offset))
+    @recycle_data.read_int(RC_ENTRIES_START_+offset)
   end
 
   def set_rdir_slot(offset, value)
-    BlockFile.write_int(@recycle_data,(RC_ENTRIES_START_+offset),value)
+    @recycle_data.write_int(RC_ENTRIES_START_+offset,value)
   end
 
   def set_rdir_next_name(n)
-    BlockFile.write_int(@recycle_data,RC_PREV_DIR_NAME_,n)
+    @recycle_data.write_int(RC_PREV_DIR_NAME_,n)
   end
 
   # Get name of first recycle directory block (they are connected as
   # a singly-linked list)
   #
   def rdir_head_name
-    BlockFile.read_int(@header_data,HDR_RECYCLEINDEX_)
+    @header_data.read_int(HDR_RECYCLEINDEX_)
   end
 
   # Write a block; if we're appending a new block, increment
@@ -418,8 +359,23 @@ class BlockFile
   # @param value value to write
   #
   def write_hdr(field, value)
-    BlockFile.write_int(@header_data, field, value)
+    @header_data.write_int(field, value)
     @header_modified = true
   end
+
+
+  # Header block fields; each is an integer
+  INT_BYTES_ = 4
+  HDR_BLOCKSIZE_ = 1
+  HDR_MAXINDEX_ = 2
+  HDR_RECYCLEINDEX_ = 3
+  HDR_USERSTART_ = 4
+  HDR_SIZE_BYTES_ = (HDR_USERSTART_ + USER_HEADER_INTS) * INT_BYTES_
+
+  # Fields of a recycle directory block
+  RC_PREV_DIR_NAME_ = 0
+  RC_ENTRIES_USED_ = 1
+  RC_ENTRIES_START_ = 2
+  HDR_VERSION_ = 0
 
 end

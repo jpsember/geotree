@@ -1,153 +1,128 @@
-require 'test/unit'
+#!/usr/bin/env ruby
+require 'geotree'
+require 'js_base/test'
 
-require_relative '../lib/geotree/tools.rb'
-req('externalsort')
-
-include ExternalSortModule
-
-class TestExternalSort <  MyTestSuite
+class TestExternalSort <  Test::Unit::TestCase
   include ExternalSortModule
 
   ELEM_SIZE = 16
-  
-  # Make a directory, if it doesn't already exist
-  def mkdir(name)
-    if !File.directory?(name)
-      Dir::mkdir(name)
+
+  def setup
+    @swizzler = Swizzler.new
+    @swizzler.shorten_backtraces
+
+    srand(42)
+
+    enter_test_directory
+
+    @path =  "sample_file.bin"
+
+    @comparator1 = Proc.new do |x,y|
+      x <=> y
     end
-  end
-
-  def suite_setup
-
-    # Make current directory = the one containing this script
-    main?(__FILE__)
-
-    @@test_dir = "workdir"
-    mkdir(@@test_dir)
-
-    @@path = File.join(@@test_dir,"_input_.txt")
-    if !File.file?(@@path)
-      pr("\nConstructing test file #{@@path}...\n")
-      srand(42)
-      q = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
- 
-      s = ''
-      while s.size < 100000
-        m = q.shuffle
-        m = m[0..rand(q.size)]
-        s << m.join << "\n"
-      end
-      write_text_file(@@path,s)
+    @comparator2 = Proc.new do |x,y|
+      y <=> x
     end
-    
-    raise Exception,"no test file found" if !File.file?(@@path)
 
-    @@path3 = File.join(@@test_dir,"_largefile_.dat")
+    construct_test_file(@path,16_000)
   end
 
-  def prepare_unsorted
-    @@path2 = File.join(@@test_dir,"_output_.dat")
-    remove_file_or_dir(@@path2)
-    FileUtils.cp(@@path,@@path2)
-
-    fs = File.size(@@path2)
-    File.truncate(@@path2, fs - fs % ELEM_SIZE)
+  def teardown
+    leave_test_directory
+    @swizzler.remove_all
   end
 
-  def suite_teardown
-    #    remove_file_or_dir(@@path3)
+  ELEMENT_CHARS = 'ABCDEFGHIJKLMNOP'.split('')
+
+  DEFAULT_ELEMENT_GENERATOR = Proc.new do |index|
+    a = ELEMENT_CHARS.dup.shuffle
+    a.join
   end
 
-  def method_setup
-  end
-
-  def method_teardown
-  end
-
-  def test_chunk
-    db = false
-
-    prepare_unsorted
-
-    f = File.open(@@path,"rb")
-    f2 = File.open(@@path2,"wb")
-
-    fs = File.size(@@path)
-    fs -= fs % ELEM_SIZE
-
-    ch = ChunkReader.new(f, 0, fs, ELEM_SIZE, 73  )
-
-    ch2 = ChunkWriter.new(f2,0,fs,ELEM_SIZE, 300  )
-
-    while !ch.done
-      !db|| puts(ch.peek_dump)
-
-      buff, offset = ch.read()
-      !db||pr("Read: %s",hex_dump_to_string(buff[offset,ch.element_size]))
-      ch2.write(buff,offset)
-    end
-    !db || pr("%s\n%s\n",d(ch),d(ch2))
-
-  end
-
-  def test_sort
-
-    db = false
-
-    prepare_unsorted
-
-    !db||   pr("before sorting:\n")
-    !db||  puts(hex_dump(read_text_file(@@path2)))
-    sr = Sorter.new(@@path2, ELEM_SIZE, nil, 90, 8)
-
-    sr.sort
-    !db||  pr("after sorting:\n")
-    !db||  puts(hex_dump(read_text_file(@@path2)))
-  end
-
-  
-  def test_sort_large
-
-    elem_size = 16
-
-    if !File.file?(@@path3)
-      pr("Constructing LARGE file for sort test...\n")
-      f = File.open(@@path3,"wb+")
-      srand(1965)
-
-      a = 'abcdefghijklmnopABCDEFGHIJKLMNOP'.chars
-      a = a[0...elem_size]
-
-      tot = 10_000_000 / 20
-      
-      tot.times do |i|
-        s = a.shuffle.join
-        f.write(s)
+  def construct_test_file(path,num_elements,element_generator=DEFAULT_ELEMENT_GENERATOR)
+    FileUtils.rm_rf(path)
+    File.open(path,"wb") do |file|
+      num_elements.times do |i|
+        element = element_generator.call(i)
+        if element.length < ELEM_SIZE
+          element += ByteArray.zeros(ELEM_SIZE-element.length)
+        end
+        element[ELEM_SIZE-1..-1] = "\n"
+        file.write(element)
       end
     end
+  end
 
-    c1 = Proc.new do |x,y|
-      bx,ox = x
-      by,oy = y
-      bx[ox,elem_size] <=> by[oy,elem_size]
+  def verify_sorted_order(path, comparator)
+    length = File.size?(path)
+    f = File.open(path,IO::BINARY | IO::RDONLY)
+    r = ChunkReader.new(f,0,length,ELEM_SIZE,1000)
+    prev_element = nil
+    while true
+      element = r.read
+      break if !element
+      if prev_element
+        result = comparator.call(prev_element,element)
+        assert(result <= 0, "Items not in expected order:\n#{prev_element}\n#{element}\n")
+      end
+      prev_element = element
     end
-    c2 = Proc.new do |x,y|
-      bx,ox = x
-      by,oy = y
-      bx[ox+1,elem_size-1] <=> by[oy+1,elem_size-1]
+  end
+
+  def build_sorter(path,comparator)
+    Sorter.new(path,ELEM_SIZE,comparator)
+  end
+
+
+  def test_100_chunk
+    path2 = '_copy_.bin'
+    f = File.open(@path,"rb")
+    f2 = File.open(path2,"wb")
+
+    ch = ChunkReader.new(f,0,File.size(@path),ELEM_SIZE,73)
+    ch2 = ChunkWriter.new(f2,0,ELEM_SIZE,300)
+
+    while true
+      element = ch.read()
+      break if !element
+      ch2.write(element)
+    end
+    ch2.flush
+    assert(FileUtils.cmp(@path,path2))
+  end
+
+  def test_200_sort
+    path2 = '_copy_.bin'
+    [2,3,8,30].each do |max_segments|
+      FileUtils.cp(@path,path2)
+      chunk_size = (max_segments > 10) ? ELEM_SIZE*4 : 2000
+      sr = Sorter.new(path2, ELEM_SIZE, nil, chunk_size, max_segments)
+      sr.sort
+      verify_sorted_order(path2,@comparator1)
+    end
+  end
+
+  def test_300_sort_with_duplicates
+    num_elements = 5_000
+    generator = Proc.new do |index|
+      a = ELEMENT_CHARS[0..5].dup.shuffle
+      a.join
     end
 
-    pr("Sorting file in one way...\n")
-
-    sr = Sorter.new(@@path3, elem_size, c2)
+    path = @path
+    construct_test_file(path,num_elements,generator)
+    sr = build_sorter(path,@comparator2)
     sr.sort
+    verify_sorted_order(path,@comparator2)
+    assert_equal(File.size(path),num_elements * ELEM_SIZE)
+  end
 
-    pr("Sorting file in another...\n")
-
-    sr = Sorter.new(@@path3, elem_size, c1)
+  def _test_400_sort_large
+    path = "_large_file_.bin"
+    construct_test_file(path,300_000)
+    sr = build_sorter(path,@comparator2)
     sr.sort
-    pr("...done sorting\n")
-
+    verify_sorted_order(path,@comparator2)
   end
 
 end

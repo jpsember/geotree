@@ -1,5 +1,3 @@
-require_relative 'datapoint'
-
 module GeoTreeModule
 
   DATAPOINT_INTS = 4
@@ -7,16 +5,9 @@ module GeoTreeModule
   INT_BYTES = 4
   DATAPOINT_BYTES = DATAPOINT_INTS * INT_BYTES
 
-  if true
-    KDTREE_BLOCKSIZE = 256
-    NODEI_CHILDREN = (((KDTREE_BLOCKSIZE/INT_BYTES) - 6)/2)
-    NODEL_CAPACITY = (((KDTREE_BLOCKSIZE/INT_BYTES) - 4)/4)
-  else
-    KDTREE_BLOCKSIZE = 64
-    NODEI_CHILDREN = [(((KDTREE_BLOCKSIZE/INT_BYTES) - 6)/2),3].min
-    NODEL_CAPACITY = (((KDTREE_BLOCKSIZE/INT_BYTES) - 4)/4)
-    warn("using unusually small nodes; children=#{NODEI_CHILDREN}, capacity=#{NODEL_CAPACITY}")
-  end
+  KDTREE_BLOCKSIZE = 256
+  NODEI_CHILDREN = (((KDTREE_BLOCKSIZE/INT_BYTES) - 6)/2)
+  NODEL_CAPACITY = (((KDTREE_BLOCKSIZE/INT_BYTES) - 4)/4)
 
   # The maximum population of a leaf node (+ overflow nodes) without splitting
   # (although splitting is disabled if the leaf bounds gets too small)
@@ -26,12 +17,7 @@ module GeoTreeModule
   # (to convert a leaf node that's at capacity to an internal node)
   SPLITTABLE_LINEAR_SIZE = 2
 
-  if false
-    warn("setting cache very small")
-    KD_CACHE_SIZE = 5
-  else
-    KD_CACHE_SIZE = (100000/KDTREE_BLOCKSIZE)
-  end
+  KD_CACHE_SIZE = (100000/KDTREE_BLOCKSIZE)
 
   # Block fields for Node base class (each is an int)
   HDR_FLAGS = 0
@@ -60,7 +46,7 @@ module GeoTreeModule
   #
   class Node
 
-    attr_accessor :leaf
+    attr_reader :leaf
     attr_accessor :name
     # If true, the slabs are stacked vertically; otherwise, they're arranged
     # horizontally
